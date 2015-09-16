@@ -1,0 +1,14 @@
+/* globals oojs */
+/**
+ * @file {{filePath}}
+ * {{authorInfo}}
+ **/
+oojs.define({
+    name: '{{className}}',
+    namespace: '{{classNamespace}}',
+    deps: {
+    },
+    ${{className}}: function () {
+    }
+
+});

@@ -20,7 +20,7 @@ function build () {
 	});	
 }
 
-var  targetProject = '/usr/local/lib/node_modules/node-oojs-utility/';
+var  targetProject = '/Users/biz/.node/lib/node_modules/node-oojs-utility/';
 
 function copy (file) {
     var  cmd = "sudo rm " + targetProject + file;
