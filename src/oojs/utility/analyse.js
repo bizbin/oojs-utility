@@ -6,15 +6,16 @@ oojs.define && oojs.define({
     $analyse: function () {
         this.fs = require('fs');
         this.path = require('path');
+        this.md5 = require('md5');
     },
 
     /**
      * 分析指定路径文件的deps
+     *
+     * @param {string} path 文件路径
+     * @return {Object} oojs类文件描述
      **/
-    analyzeDeps: function (path) {
-        // 缓存源代码，供拼接时使用
-        this.codeRecordMap = this.codeRecordMap || {};
-
+    analyzeCls: function (path) {
         var classDescription = {};
 
         var depsList = [];
@@ -44,9 +45,7 @@ oojs.define && oojs.define({
                 var pList = node.args[0].properties;
                 for (var i = 0, len = pList.length; i < len; i++) {
                     var pNode = pList[i];
-                    if (pNode instanceof ujs.AST_ObjectProperty
-                        //&& pNode.key === 'deps'
-                    ) {
+                    if (pNode instanceof ujs.AST_ObjectProperty) {
                         switch (pNode.key) {
                             default :
                                 classDescription[pNode.key] = pNode.value.value;
@@ -64,8 +63,6 @@ oojs.define && oojs.define({
                                 classDescription.deps = depsList;
                                 break;
                         }
-
-                        //break;
                     }
                     else {
                         console.log(pNode);
@@ -75,32 +72,46 @@ oojs.define && oojs.define({
             }
         }));
 
-        return classDescription;
+        return {
+            className: classDescription.name,
+            filePath: path,
+            description: classDescription,
+            source: code,
+            fileMD5: this.md5(code)
+        };
     },
 
     /**
-     * 递归加载所有的类的依赖
+     * 递归加载指定类的所有依赖
      *
-     * @return {Array} depsRecordList 按依赖顺序加载的代码数组
+     * @param {strubg} clsFullName
+     * @return {Object} 按依赖顺序加载的代码数组
      **/
-    loadAllDeps: function (depsList) {
-        this.depsRecordMap = this.depsRecordMap || {};
-        // this.depsMap = this.depsMap || {}
+    analyzeAllDeps: function (clsFullName, recordMap) {
+        recordMap = recordMap || {};
+
+        // 如果记录中已经存在
+        if (recordMap.hasOwnProperty(clsFullName)) {
+            return recordMap;
+        }
+
+        var filePath = oojs.getClassPath(clsFullName);
+        var classData = this.analyzeCls(filePath);
+        recordMap[clsFullName] = classData;
+        var depsList = classData.deps || [];
+
         for (var i = 0, count = depsList.length; i < count; i++) {
             var depsClassFullName = depsList[i];
-            if (!this.depsRecordMap.hasOwnProperty(depsClassFullName)) {
-                var depsClassFilePath = oojs.getClassPath(depsClassFullName);
-                var classData = this.analyzeDeps(depsClassFilePath);
-                this.depsRecordMap[depsClassFullName] = classData;
-                if (classData.deps) {
-                    this.loadAllDeps(classData.deps);
-                }
+            // 如果记录中已经存在，忽略
+            if (recordMap.hasOwnProperty(depsClassFullName)) {
+                continue;
             }
+            this.analyzeAllDeps(depsClassFullName, recordMap);
         }
+
+        return recordMap;
     },
-    getDepsRecordMap: function () {
-        return this.depsRecordMap;
-    },
+
     /**
      * 检查循环依赖
      *
@@ -108,7 +119,7 @@ oojs.define && oojs.define({
      */
     checkDepsCircle: function (className, lastClsName, currentClsName, recordMap) {
         recordMap = recordMap || {};
-        //console.log(className + ' --- ' + currentClsName);
+
         if (className === currentClsName) {
             console.log(className + ' 存在依赖循环');
             return true;
@@ -141,6 +152,13 @@ oojs.define && oojs.define({
         return false;
     },
 
+    /**
+     * 对依赖进行排序
+     *
+     * @param {Array} list
+     * @param {Object} depsMap
+     * @return {*|Array}
+     */
     sortDeps: function (list, depsMap) {
         list = list || [];
         this.depsRecordMap = depsMap? depsMap: this.depsRecordMap;
@@ -170,27 +188,38 @@ oojs.define && oojs.define({
         return list;
     },
 
+    /**
+     * 对依赖进行裁剪
+     * @param dep
+     */
     clearDep: function (dep) {
         for (var key in this.depsRecordMap) {
-            if (key && this.depsRecordMap.hasOwnProperty(key) && this.depsRecordMap[key]) {
-                var classDes = this.depsRecordMap[key];
-                if (classDes && classDes.hasOwnProperty('deps')) {
-                    for (var j = 0, count = classDes.deps.length; j < count; j++) {
-                        if (classDes.deps[j] === dep) {
-
-                            //console.log(classDes.name + '   ' + dep + ' is deleted');
-
-                            classDes.deps.splice(j, 1);
-                            break;
-                        }
+            if (!key
+                || !this.depsRecordMap.hasOwnProperty(key)
+                || !this.depsRecordMap[key]
+            ) {
+                continue;
+            }
+            var classDes = this.depsRecordMap[key];
+            if (classDes && classDes.hasOwnProperty('deps')) {
+                for (var j = 0, count = classDes.deps.length; j < count; j++) {
+                    if (classDes.deps[j] === dep) {
+                        //console.log(classDes.name + '   ' + dep + ' is deleted');
+                        classDes.deps.splice(j, 1);
+                        break;
                     }
-
                 }
             }
         }
 
     },
 
+    /**
+     * 深拷贝依赖记录
+     *
+     * @param depsRecordMap
+     * @returns {{}}
+     */
     deepCopyDeps: function (depsRecordMap) {
         var cloneObject = {};
 
@@ -221,7 +250,7 @@ oojs.define && oojs.define({
     parseSortedDepsList: function (depsList) {
         this.depsRecordMap = {};
         // 按依赖关系分析出用到的所有类
-        this.loadAllDeps(depsList);
+        this.analyzeAllDeps(depsList);
 
         // 检查是否存在循环依赖
         var isCircle = false;

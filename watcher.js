@@ -2,6 +2,7 @@ var  exec = require('child_process').exec;
 // https://github.com/mikeal/watch 
 // npm install watch
 var  watcher = require('watch'); 
+var os = require('os');
 
 function build () {
 
@@ -20,7 +21,7 @@ function build () {
 	});	
 }
 
-var  targetProject = '/Users/biz/.node/lib/node_modules/node-oojs-utility/';
+var  targetProject = 'C:\\Users\\wangbin13\\AppData\\Roaming\\npm\\node_modules\\node-oojs-utility\\';
 
 function copy (file) {
     var  cmd = "sudo rm " + targetProject + file;
@@ -56,10 +57,35 @@ function copy (file) {
 	});
 }
 
+function winCopy (file) {
+    var  cmd = "COPY /y " + file + " " + targetProject + file;
+    console.log(cmd);
+    exec(cmd, function (error, stdout, stderr) {
+		if (error) {
+			console.log("【COPY Error】--->", error);
+			//return;
+		}
+
+		if (stderr) {
+			console.log("【COPY Error】--->", stderr);
+			//return;
+		}
+		
+		console.log("【COPY Successed】" + new Date().toString());
+	});
+}
+
 function publish (command, file) {
 	//console.log("【File " + command + "】--->", file);
+	console.log('current system is ' + os.platform());
     if (/\.js$/.test(''+file) > 0) {
-        copy(file);
+		if (os.platform() === 'win32') {
+			winCopy(file);
+		}
+		else {
+			copy(file);
+		}
+       
     }
 }
 
