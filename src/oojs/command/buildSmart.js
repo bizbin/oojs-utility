@@ -6,9 +6,9 @@ oojs.define({
         fileSync: 'oojs.utility.fileSync',
         jsHelper: 'oojs.utility.jsHelper',
         gzip: 'oojs.utility.gzip',
-        analyse: 'oojs.utility.analyse'
+        analyse: 'oojs.utility.analyse',
+        lang: 'oojs.utility.lang'
     },
-    recording: {},
     // 所有类的名字集合
     classNameArray: [],
     // 待加载类的集合
@@ -23,9 +23,6 @@ oojs.define({
         this.cache = {};
         // 总控依赖的所有**打包用的**模块（有序）
         this.allDepsList = [];
-        
-        // 所有painter**打包需要的**所有模块（有序）
-        this.painterDepsList = {}
     },
 
     buildSmart: function (args) {
@@ -35,8 +32,8 @@ oojs.define({
     },
 
     run: function () {
-        var  packageObj = require(this.configPath);
-        var  buildObj = packageObj.build;
+        var packageObj = require(this.configPath);
+        var buildObj = packageObj.build;
         this.buildObj = buildObj;
         if (this.target) {
             this.buildItem(buildObj[this.target]);
@@ -205,15 +202,21 @@ oojs.define({
         // console.log('split::' + splitList);
 
         var allRecord = {};
-        var splitRecordList = [];
+        var splitRecordMap = {};
         var i = 0;
         var count = 0;
 
         // 处理单个加载的
         for (i = 0, count = singleImportList.length; i < count; i++) {
             var clsFullName = singleImportList[i];
-            var filePath = oojs.getClassPath(clsFullName);
-            var classData = this.analyse.analyzeCls(filePath);
+            // 处理oojs核心 module 引用
+            if (clsFullName && clsFullName.indexOf('oojs') > -1) {
+                allRecord[clsFullName] = this.analyse.parseCoreFile(clsFullName);
+            }
+            else {
+                var filePath = oojs.getClassPath(clsFullName);
+                var classData = this.analyse.analyzeCls(filePath);
+            }
             allRecord[clsFullName] = classData;
         }
 
@@ -221,23 +224,40 @@ oojs.define({
         for (i = 0, count = allImportList.length; i < count; i++) {
             this.analyse.analyzeAllDeps(allImportList[i], allRecord);
         }
-        console.log(allRecord);
-
-        this.sor
 
         // 处理split
         for (i = 0, count = splitList.length; i < count; i++) {
             var clsFullName = splitList[i];
-
             if (allRecord[clsFullName]) {
                 console.log('[WARNING] ' + clsFullName + ' has imported!');
             }
             else {
                 var record = {};
-                this.analyse.analyzeAllDeps(allImportList[i], record);
-                splitRecordList.push(record);
+                this.analyse.analyzeAllDeps(splitList[i], record, allRecord);
+                splitRecordMap[clsFullName] = record;
             }
         }
+
+        console.log('---------ALL---------\n');
+        var temp = this.lang.deepCopyObject(allRecord);
+        var sortedList = this.analyse.sortDeps(null, temp);
+        console.log(sortedList);
+        console.log('----------ALL----END---------\n');
+
+        console.log('------split--------\n');
+        for (var key in splitRecordMap) {
+            console.log('----------------' + key + '------------');
+            if (!key || !splitRecordMap[key] || !splitRecordMap.hasOwnProperty(key)) {
+                continue;
+            }
+
+            var splitMap = splitRecordMap[key];
+            var temp = this.lang.deepCopyObject(splitMap);
+            var list = this.analyse.sortDeps(null, temp);
+            console.log(list);
+            console.log('-----------' + key + '--END-----------\n');
+        }
+
 
         // 处理importWithDeps命令, 加载当前类以及所有依赖的类
         //sourceFileString = sourceFileString.replace(

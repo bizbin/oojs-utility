@@ -9,6 +9,19 @@ oojs.define && oojs.define({
         this.md5 = require('md5');
     },
 
+    parseCoreFile: function (fullname) {
+        var path = "./node_modules/node-oojs/bin/" + fullname + ".js";
+        var code = this.fs.readFileSync(path, 'utf-8');
+        return {
+            className: fullname,
+            fullName: fullname,
+            filePath: path,
+            description: 'core',
+            source: code,
+            fileMD5: this.md5(code)
+        };
+    },
+
     /**
      * 分析指定路径文件的deps
      *
@@ -84,29 +97,37 @@ oojs.define && oojs.define({
     /**
      * 递归加载指定类的所有依赖
      *
-     * @param {strubg} clsFullName
+     * @param {string} clsFullName
+     * @param {Object} recordMap
+     * @param {Object} filterRecord
      * @return {Object} 按依赖顺序加载的代码数组
      **/
-    analyzeAllDeps: function (clsFullName, recordMap) {
+    analyzeAllDeps: function (clsFullName, recordMap, filterRecord) {
         recordMap = recordMap || {};
 
-        // 如果记录中已经存在
-        if (recordMap.hasOwnProperty(clsFullName)) {
+        // 如果记录或过滤列表中已经存在
+        if (recordMap[clsFullName] || (filterRecord && filterRecord[clsFullName])) {
             return recordMap;
         }
 
+        // 处理oojs核心 module 引用
+        if (clsFullName && clsFullName.indexOf('oojs') > -1) {
+            recordMap[clsFullName] = this.parseCoreFile(clsFullName);
+            return recordMap;
+        }
         var filePath = oojs.getClassPath(clsFullName);
-        var classData = this.analyzeCls(filePath);
+        var classFileModel = this.analyzeCls(filePath);
+        var classData = classFileModel.description;
         recordMap[clsFullName] = classData;
         var depsList = classData.deps || [];
 
         for (var i = 0, count = depsList.length; i < count; i++) {
             var depsClassFullName = depsList[i];
             // 如果记录中已经存在，忽略
-            if (recordMap.hasOwnProperty(depsClassFullName)) {
+            if (recordMap.hasOwnProperty(depsClassFullName) || (filterRecord && filterRecord[depsClassFullName])) {
                 continue;
             }
-            this.analyzeAllDeps(depsClassFullName, recordMap);
+            this.analyzeAllDeps(depsClassFullName, recordMap, filterRecord);
         }
 
         return recordMap;
@@ -161,28 +182,35 @@ oojs.define && oojs.define({
      */
     sortDeps: function (list, depsMap) {
         list = list || [];
-        this.depsRecordMap = depsMap? depsMap: this.depsRecordMap;
 
         var count = 0;
-        for (var key in this.depsRecordMap) {
-            if (key && this.depsRecordMap.hasOwnProperty(key) && this.depsRecordMap[key]) {
-                var classDes = this.depsRecordMap[key];
+        var tempList = [];
+        for (var key in depsMap) {
+            if (key && depsMap[key] && depsMap.hasOwnProperty(key)) {
+                var fileModel = depsMap[key];
+                var classDes = fileModel.description;
                 // 出度为0
                 if (
-                    !classDes.hasOwnProperty('deps')
+                    !classDes
+                    || !classDes.hasOwnProperty('deps')
                     || classDes.deps.length === 0
                 ) {
-                    list.push(key);
-                    this.clearDep(key);
-                    this.depsRecordMap[key] = undefined;
-                } else {
+                    tempList.push(key);
+                    this.clearDep(key, depsMap);
+                    depsMap[key] = undefined;
+                }
+                else {
                     count++;
                 }
             }
         }
+        
+        // 相同出度的排个序
+        tempList.sort();
+        list = list.concat(tempList);
 
         if (count > 0) {
-            this.sortDeps(list);
+            this.sortDeps(list, depsMap);
         }
 
         return list;
@@ -192,16 +220,17 @@ oojs.define && oojs.define({
      * 对依赖进行裁剪
      * @param dep
      */
-    clearDep: function (dep) {
-        for (var key in this.depsRecordMap) {
+    clearDep: function (dep, depsMap) {
+        for (var key in depsMap) {
             if (!key
-                || !this.depsRecordMap.hasOwnProperty(key)
-                || !this.depsRecordMap[key]
+                || !depsMap.hasOwnProperty(key)
+                || !depsMap[key]
             ) {
                 continue;
             }
-            var classDes = this.depsRecordMap[key];
-            if (classDes && classDes.hasOwnProperty('deps')) {
+            var fileModel = depsMap[key];
+            var classDes = fileModel.description;
+            if (classDes && classDes['deps'] && classDes.hasOwnProperty('deps')) {
                 for (var j = 0, count = classDes.deps.length; j < count; j++) {
                     if (classDes.deps[j] === dep) {
                         //console.log(classDes.name + '   ' + dep + ' is deleted');
@@ -215,42 +244,13 @@ oojs.define && oojs.define({
     },
 
     /**
-     * 深拷贝依赖记录
-     *
-     * @param depsRecordMap
-     * @returns {{}}
-     */
-    deepCopyDeps: function (depsRecordMap) {
-        var cloneObject = {};
-
-        for (var moduleName in depsRecordMap) {
-            var moduleDeps = depsRecordMap[moduleName]['deps'];
-            cloneObject[moduleName] = {
-                deps: []
-            };
-
-            if (moduleDeps && moduleDeps.length) {
-                for (var i = 0; i < moduleDeps.length ; i++) {
-                    cloneObject[moduleName]['deps'][i] = moduleDeps[i];
-                }
-            }
-        }
-
-        return cloneObject;
-    },
-
-    getCloneDeps: function () {
-        return this.cloneDepsMap;
-    },
-
-    /**
      * 获得排序后的先后关系列表
      * @returns {*}
      */
     parseSortedDepsList: function (depsList) {
         this.depsRecordMap = {};
         // 按依赖关系分析出用到的所有类
-        this.analyzeAllDeps(depsList);
+        // this.analyzeAllDeps(depsList);
 
         // 检查是否存在循环依赖
         var isCircle = false;
@@ -269,7 +269,6 @@ oojs.define && oojs.define({
             console.log(badSnakeList);
             return;
         }
-        this.cloneDepsMap = this.deepCopyDeps(this.depsRecordMap);
 
         // 依赖关系排序
         return this.sortDeps();

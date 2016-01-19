@@ -21,7 +21,20 @@ function build () {
 	});	
 }
 
-var  targetProject = 'C:\\Users\\wangbin13\\AppData\\Roaming\\npm\\node_modules\\node-oojs-utility\\';
+var targetProject = 'C:\\Users\\wangbin13\\AppData\\Roaming\\npm\\node_modules\\node-oojs-utility\\';
+
+if (os.platform() === 'win32') {
+
+}
+else {
+	targetProject = '/Users/biz/.node/lib/node_modules/node-oojs-utility/';
+}
+
+// find target path
+function macFindTargetPath() {
+	//var cmd = 'which oojs'
+}
+
 
 function copy (file) {
     var  cmd = "sudo rm " + targetProject + file;
@@ -90,7 +103,6 @@ function publish (command, file) {
 }
 
 watcher.watchTree("./src", function (f, curr, prev) {
-	
 	if (prev === null) {
 		//publish("Created", f);
     } 
