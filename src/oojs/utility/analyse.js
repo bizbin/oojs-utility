@@ -204,7 +204,7 @@ oojs.define && oojs.define({
                 }
             }
         }
-        
+
         // 相同出度的排个序
         tempList.sort();
         list = list.concat(tempList);
