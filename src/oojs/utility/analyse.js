@@ -9,6 +9,12 @@ oojs.define && oojs.define({
         this.md5 = require('md5');
     },
 
+    /**
+     * 对oojs核心库的特殊解析
+     *
+     * @param fullname
+     * @returns {{className: *, fullName: *, filePath: string, description: string, source: string, fileMD5: *}}
+     */
     parseCoreFile: function (fullname) {
         var path = "./node_modules/node-oojs/bin/" + fullname + ".js";
         var code = this.fs.readFileSync(path, 'utf-8');
@@ -245,23 +251,23 @@ oojs.define && oojs.define({
 
     /**
      * 获得排序后的先后关系列表
+     *
+     * @param {string} clsFullName 类全名
      * @returns {*}
      */
-    parseSortedDepsList: function (depsList) {
-        this.depsRecordMap = {};
+    parseSortedDepsList: function (clsFullName) {
         // 按依赖关系分析出用到的所有类
-        // this.analyzeAllDeps(depsList);
+        var allDependsMap = this.analyzeAllDeps(clsFullName);
 
         // 检查是否存在循环依赖
         var isCircle = false;
         var badSnakeList = [];
-        for (var clsName in this.depsRecordMap) {
+        for (var clsName in allDependsMap) {
             var result = this.checkDepsCircle(clsName);
             if (result) {
                 isCircle = true;
                 badSnakeList.push(clsName);
             }
-            //console.log(clsName + '  ' + result);
         }
 
         if (isCircle) {
@@ -271,7 +277,9 @@ oojs.define && oojs.define({
         }
 
         // 依赖关系排序
-        return this.sortDeps();
+        var list = null;
+        this.sortDeps(list, allDependsMap);
+        return list;
     }
 
 });

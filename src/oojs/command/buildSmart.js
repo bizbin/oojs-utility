@@ -183,9 +183,21 @@ oojs.define({
         return importClsList;
     },
     /**
+     * 解析源码
+     * @param {string} 编译模板源文件
+     * @param {Array} FileModel 列表
+     */
+    parseSourceFile: function (sourceTemplate, fileModelList) {
+    },
+    /**
      * 针对配置的构建item编译脚本
-     * TODO 一个item对应一个build template。可能包含多个编译指令
+     *
      * @param {Object} item
+     * @param {string} item.template 编译模板文件配置
+     * @param {string} item.sourceFile 编译出源文件地址
+     * @param {string} item.formatFile 带格式去注释文件地址
+     * @param {string} item.compressFile 压缩后文件地址
+     * @param {string} item.gzipFile gzip压缩文件地址
      */
     buildItem: function (item) {
         var buildItemStartTimestamp = +new Date;
@@ -196,10 +208,6 @@ oojs.define({
         var singleImportList = this.parseImportToken(templateSource);
         var allImportList = this.parseImportAllToken(templateSource);
         var splitList = this.parseSplitToken(templateSource);
-
-        // console.log('sigle::' + singleImportList);
-        // console.log('importAll::' + allImportList);
-        // console.log('split::' + splitList);
 
         var allRecord = {};
         var splitRecordMap = {};
@@ -238,15 +246,10 @@ oojs.define({
             }
         }
 
-        console.log('---------ALL---------\n');
         var temp = this.lang.deepCopyObject(allRecord);
-        var sortedList = this.analyse.sortDeps(null, temp);
-        console.log(sortedList);
-        console.log('----------ALL----END---------\n');
+        var sortedAllDependsList = this.analyse.sortDeps(null, temp);
 
-        console.log('------split--------\n');
         for (var key in splitRecordMap) {
-            console.log('----------------' + key + '------------');
             if (!key || !splitRecordMap[key] || !splitRecordMap.hasOwnProperty(key)) {
                 continue;
             }
@@ -254,39 +257,7 @@ oojs.define({
             var splitMap = splitRecordMap[key];
             var temp = this.lang.deepCopyObject(splitMap);
             var list = this.analyse.sortDeps(null, temp);
-            console.log(list);
-            console.log('-----------' + key + '--END-----------\n');
         }
-
-
-        // 处理importWithDeps命令, 加载当前类以及所有依赖的类
-        //sourceFileString = sourceFileString.replace(
-        //    importWithDepsRegexp,
-        //    function () {
-        //        var  result = [];
-        //        var  importFilePath = arguments[1];
-        //        importFilePath = importFilePath.replace(/\'/gi, "").replace(/\"/gi, "");
-        //        var sourceCode = '';
-        //        this.allDepsList = this.analyse.parseSortedDepsList([importFilePath]);
-        //
-        //        // 缓存所有模块的依赖信息
-        //        this.depsMap = this.analyse.getCloneDeps();
-        //        if (this.allDepsList) {
-        //            for (var i = 0, len = this.allDepsList.length; i < len; i++) {
-        //                var clsName = this.allDepsList[i];
-        //                var clsFilePath = oojs.getClassPath(clsName);
-        //                var code = this.fileSync.readFileSync(clsFilePath, 'utf-8');
-        //                // 更新代码缓存
-        //                var singleCache = (this.cache[clsName] = this.cache[clsName] || {});
-        //                singleCache['source'] = code;
-        //                singleCache['md5'] = this.md5(code);
-        //                sourceCode += code;
-        //            }
-        //        }
-        //
-        //        return sourceCode;
-        //    }.proxy(this)
-        //);
 
         // this.buildTotally(item);
 
