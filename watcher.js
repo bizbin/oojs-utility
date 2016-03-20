@@ -49,24 +49,24 @@ function copy (file) {
 			console.log("【rm Error】--->", stderr);
 			//return;
 		}
-		
+
 		console.log("【rm Successed】");
-	});
 
-    var  cmd2 = "sudo cp " + file + " " + targetProject + file;
-    console.log(cmd2);
-    exec(cmd2, function (error, stdout, stderr) {
-		if (error) {
-			console.log("[cp Error】--->", error);
-			return;
-		}
+		var  cmd2 = "sudo cp " + file + " " + targetProject + file;
+		console.log(cmd2);
+		exec(cmd2, function (error, stdout, stderr) {
+			if (error) {
+				console.log("[cp Error】--->", error);
+				return;
+			}
 
-		if (stderr) {;
-			console.log("【cp Error】--->", stderr);
-			return;
-		}
-		
-		console.log("【cp Successed】 " + new Date().toString());
+			if (stderr) {;
+				console.log("【cp Error】--->", stderr);
+				return;
+			}
+
+			console.log("【cp Successed】 " + new Date().toString());
+		});
 	});
 }
 

@@ -11,10 +11,7 @@ oojs.define({
     },
     // 所有类的名字集合
     classNameArray: [],
-    // 待加载类的集合
-    prepareloadArray: [],
-    // 待加载的依赖类集合
-    prepareDepsArray: [],
+
     $buildSmart: function () {
         this.fs = require('fs');
         this.path = require('path');
@@ -39,79 +36,6 @@ oojs.define({
             this.buildItem(buildObj[this.target]);
             return;
         }
-        this.buildSwitch();
-    },
-    buildTotally: function (item) {
-        //处理source文件
-        this.buildSourceFile(item.sourceFile)
-        //处理format文件
-        var formatString = this.buildFormatFile(item.formatFile);
-        // 处理compress文件
-        var compressStr = this.buildCompressFile(item.compressFile, formatString);
-        // 处理gzip文件
-        this.buildGzipFile(item.gzipFile, compressStr);
-    },
-    _build: function (filePathArr, format) {
-        var totalStr = '';
-        var  importWithDepsRegexp = /\$importAll\((\S+)\)\s*;/gi;
-
-        totalStr = this.originSourceFileString.replace(importWithDepsRegexp, function () {
-            var  sourceCode = '';
-            for (var j = 0; j < this.allDepsList.length;j++) {
-                var clsName = this.allDepsList[j];
-                var singleCache = this.cache[clsName];
-                sourceCode += singleCache[format];
-            }
-            return sourceCode;
-        }.proxy(this));
-
-        for (var  i = 0, count = filePathArr.length; i < count; i++) {
-            var  tempFilePath = filePathArr[i];
-            this.fs.writeFileSync(tempFilePath, totalStr);
-        }
-
-        return totalStr;
-    },
-    /**
-     * 编译源文件
-     * @param filePathArr
-     * @returns {*}
-     */
-    buildSourceFile: function (filePathArr) {
-        return this._build(filePathArr, 'source');
-    },
-    /**
-     * 构建去注释源文件
-     * @param filePathArr
-     * @returns {*}
-     */
-    buildFormatFile: function (filePathArr) {
-        return this._build(filePathArr, 'format');
-    },
-    /**
-     * 构建压缩文件
-     * @param filePathArr
-     * @param unCompressStr
-     * @returns {*}
-     */
-    buildCompressFile: function (filePathArr, unCompressStr) {
-        var compressStr = this.jsHelper.compressSync(unCompressStr);
-        for (var  i = 0, count = filePathArr.length; i < count; i++) {
-            var  tempFilePath = filePathArr[i];
-            this.fs.writeFileSync(tempFilePath, compressStr);
-        }
-        return compressStr;
-    },
-    /**
-     * 构建gzip压缩文件
-     * @param filePathArr
-     * @param compressStr
-     */
-    buildGzipFile: function (filePathArr, compressStr) {
-        for (var  i = 0, count = filePathArr.length; i < count; i++) {
-            var  tempGzipFilePath = filePathArr[i];
-            this.gzip.zipStringToFileSync(tempGzipFilePath, compressStr);
-        }
     },
 
     /**
@@ -119,17 +43,18 @@ oojs.define({
      * $import(); // 单个导入
      * $importAll(); // 导入全部依赖
      * $split(); // 导入，把所有依赖文件合并后成独立js文件
+     * $replace(); // 替换导入
      *
      * @param {string} template 打包模板文件
+     * @param {string} type 导入类型
      */
-    parseImportToken: function (template) {
+    parseImportToken: function (template, type) {
         // 待导入文件记录,用对象记录方便去重
         var result = [];
-        // 单个导入
-        var tokenRegexp = /\$import\((\S+)\)\s*;/gi;
+        var regexp = new RegExp('\\$' + type + '\\((\\S+)\\)\\s*;', 'gi');
         // 处理import命令, 只引用当前类
         template.replace(
-            tokenRegexp,
+            regexp,
             function () {
                 var importFilePath = arguments[1];
                 importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
@@ -138,57 +63,7 @@ oojs.define({
         );
         return result;
     },
-    /**
-     * 导入all
-     * @param template
-     * @return {Array}
-     */
-    parseImportAllToken: function (template) {
-        // 待导入文件记录,用对象记录方便去重
-        var result = [];
-        // 导入所有依赖
-        var tokenRegexp = /\$importAll\((\S+)\)\s*;/gi;
-        // 处理import命令, 只引用当前类
-        template.replace(
-            tokenRegexp,
-            function () {
-                var importFilePath = arguments[1];
-                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
-                result.push(importFilePath);
-            }.proxy(this)
-        );
-        return result;
-    },
-    /**
-     * 导入aplit
-     *
-     * @param template
-     * @return {Array}
-     */
-    parseSplitToken: function (template) {
-        // 待导入文件记录,用对象记录方便去重
-        var importClsList = [];
-        // 导入所有依赖
-        var tokenRegexp = /\$split\((\S+)\)\s*;/gi;
-        // 处理import命令, 只引用当前类
-        template.replace(
-            tokenRegexp,
-            function () {
-                var importFilePath = arguments[1];
-                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
-                importClsList.push(importFilePath);
-            }.proxy(this)
-        );
 
-        return importClsList;
-    },
-    /**
-     * 解析源码
-     * @param {string} 编译模板源文件
-     * @param {Array} FileModel 列表
-     */
-    parseSourceFile: function (sourceTemplate, fileModelList) {
-    },
     /**
      * 针对配置的构建item编译脚本
      *
@@ -201,15 +76,22 @@ oojs.define({
      */
     buildItem: function (item) {
         var buildItemStartTimestamp = +new Date;
+        var SINGLE_IMPORT = 'import';
+        var ALL_IMPORT = 'importAll';
+        var SPLITE_IMPORT = 'split';
+        var REPLACE_IMPORT = 'replace';
 
         // 编译模板
         var templateSource = this.fileSync.readFileSync('' + item.template);
 
-        var singleImportList = this.parseImportToken(templateSource);
-        var allImportList = this.parseImportAllToken(templateSource);
-        var splitList = this.parseSplitToken(templateSource);
+        var singleImportList = this.parseImportToken(templateSource, SINGLE_IMPORT);
+        var allImportList = this.parseImportToken(templateSource, ALL_IMPORT);
+        var splitList = this.parseImportToken(templateSource, SPLITE_IMPORT);
+        var replaceList = this.parseImportToken(templateSource, REPLACE_IMPORT);
 
+        // 主体部分导入记录
         var allRecord = {};
+        // 拆分出来独立打包的记录
         var splitRecordMap = {};
         var i = 0;
         var count = 0;
@@ -217,15 +99,7 @@ oojs.define({
         // 处理单个加载的
         for (i = 0, count = singleImportList.length; i < count; i++) {
             var clsFullName = singleImportList[i];
-            // 处理oojs核心 module 引用
-            if (clsFullName && clsFullName.indexOf('oojs') > -1) {
-                allRecord[clsFullName] = this.analyse.parseCoreFile(clsFullName);
-            }
-            else {
-                var filePath = oojs.getClassPath(clsFullName);
-                var classData = this.analyse.analyzeCls(filePath);
-            }
-            allRecord[clsFullName] = classData;
+            allRecord[clsFullName] = this.analyse.parseCls(clsFullName);
         }
 
         // 处理需依赖加载的
@@ -246,8 +120,20 @@ oojs.define({
             }
         }
 
+        //var str = '';
+        //for (var key in allRecord) {
+        //    if (key && allRecord.hasOwnProperty(key)) {
+        //        str += key + '\n';
+        //    }
+        //}
+        //console.log(str);
+
+
         var temp = this.lang.deepCopyObject(allRecord);
-        var sortedAllDependsList = this.analyse.sortDeps(null, temp);
+        var sortedAllDependsList = this.analyse.sortDeps(temp);
+        console.log('--------排序后---------');
+        console.log(sortedAllDependsList);
+        console.log('---------EOF------------');
 
         for (var key in splitRecordMap) {
             if (!key || !splitRecordMap[key] || !splitRecordMap.hasOwnProperty(key)) {
@@ -258,8 +144,6 @@ oojs.define({
             var temp = this.lang.deepCopyObject(splitMap);
             var list = this.analyse.sortDeps(null, temp);
         }
-
-        // this.buildTotally(item);
 
         console.log('First build totally cost', +new Date - buildItemStartTimestamp, 'ms');
     }

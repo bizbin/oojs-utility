@@ -9,6 +9,8 @@ oojs.define({
     deps: {},
     $lang: function () {
     },
+    lang: function () {
+    },
     deepCopyArray: function (targetArr) {
         var arr = [];
         for (var i = 0; i < targetArr.length; i++) {

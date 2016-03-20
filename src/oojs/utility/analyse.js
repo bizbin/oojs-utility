@@ -3,10 +3,25 @@ oojs.define && oojs.define({
     namespace: 'oojs.utility',
     deps: {
     },
+
     $analyse: function () {
         this.fs = require('fs');
         this.path = require('path');
         this.md5 = require('md5');
+    },
+
+    /**
+     * 解析类文件
+     * @param {string} fullname
+     */
+    parseCls: function (fullname) {
+        // 处理oojs核心 module 引用
+        if (fullname === 'oojs.core') {
+            return this.parseCoreFile(fullname);
+        }
+        else {
+            return this.parseByAST(fullname);
+        }
     },
 
     /**
@@ -17,6 +32,7 @@ oojs.define && oojs.define({
      */
     parseCoreFile: function (fullname) {
         var path = "./node_modules/node-oojs/bin/" + fullname + ".js";
+
         var code = this.fs.readFileSync(path, 'utf-8');
         return {
             className: fullname,
@@ -29,14 +45,18 @@ oojs.define && oojs.define({
     },
 
     /**
-     * 分析指定路径文件的deps
+     * 根据AST分析指定路径文件的deps
      *
-     * @param {string} path 文件路径
+     * @param {string} fullname 文件路径
      * @return {Object} oojs类文件描述
      **/
-    analyzeCls: function (path) {
-        var classDescription = {};
+    parseByAST: function (fullname) {
+        var path = oojs.getClassPath(fullname);
 
+        if (/oojs\.[.+]]/gi.test(fullname)) {
+            path = './node_modules/node-oojs/bin/' + fullname + '.js';
+        }
+        var classDescription = {};
         var depsList = [];
         var ujs = require('uglify-js');
         var fs = require('fs');
@@ -103,10 +123,10 @@ oojs.define && oojs.define({
     /**
      * 递归加载指定类的所有依赖
      *
-     * @param {string} clsFullName
-     * @param {Object} recordMap
-     * @param {Object} filterRecord
-     * @return {Object} 按依赖顺序加载的代码数组
+     * @param {string} clsFullName 要分析的类名
+     * @param {Object} recordMap 已确定导入类记录
+     * @param {Object} filterRecord 需要过滤的类
+     * @return {Object} 递归分析出的所有依赖的类集合
      **/
     analyzeAllDeps: function (clsFullName, recordMap, filterRecord) {
         recordMap = recordMap || {};
@@ -121,12 +141,11 @@ oojs.define && oojs.define({
             recordMap[clsFullName] = this.parseCoreFile(clsFullName);
             return recordMap;
         }
-        var filePath = oojs.getClassPath(clsFullName);
-        var classFileModel = this.analyzeCls(filePath);
-        var classData = classFileModel.description;
-        recordMap[clsFullName] = classData;
-        var depsList = classData.deps || [];
+        var classFileModel = this.parseCls(clsFullName);
+        recordMap[clsFullName] = classFileModel;
 
+        var classData = classFileModel.description;
+        var depsList = classData.deps || [];
         for (var i = 0, count = depsList.length; i < count; i++) {
             var depsClassFullName = depsList[i];
             // 如果记录中已经存在，忽略
@@ -186,9 +205,8 @@ oojs.define && oojs.define({
      * @param {Object} depsMap
      * @return {*|Array}
      */
-    sortDeps: function (list, depsMap) {
-        list = list || [];
-
+    sortDeps: function (depsMap) {
+        // 出度不为0计数
         var count = 0;
         var tempList = [];
         for (var key in depsMap) {
@@ -213,13 +231,12 @@ oojs.define && oojs.define({
 
         // 相同出度的排个序
         tempList.sort();
-        list = list.concat(tempList);
 
-        if (count > 0) {
-            this.sortDeps(list, depsMap);
+        if (count === 0) {
+            return tempList;
         }
 
-        return list;
+        return tempList.concat(this.sortDeps(depsMap));
     },
 
     /**
