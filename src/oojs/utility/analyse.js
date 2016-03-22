@@ -38,7 +38,10 @@ oojs.define && oojs.define({
             className: fullname,
             fullName: fullname,
             filePath: path,
-            description: 'core',
+            description: {
+                name: fullname,
+                deps: []
+            },
             source: code,
             fileMD5: this.md5(code)
         };
@@ -125,10 +128,11 @@ oojs.define && oojs.define({
      *
      * @param {string} clsFullName 要分析的类名
      * @param {Object} recordMap 已确定导入类记录
-     * @param {Object} filterRecord 需要过滤的类
+     * @param {Object} filterRecord 需要过滤的类记录
+     * @param {Array} replaceList 替换列表
      * @return {Object} 递归分析出的所有依赖的类集合
      **/
-    analyzeAllDeps: function (clsFullName, recordMap, filterRecord) {
+    analyzeAllDeps: function (clsFullName, recordMap, filterRecord, replaceList) {
         recordMap = recordMap || {};
 
         // 如果记录或过滤列表中已经存在
@@ -137,11 +141,27 @@ oojs.define && oojs.define({
         }
 
         // 处理oojs核心 module 引用
-        if (clsFullName && clsFullName.indexOf('oojs') > -1) {
+        if (clsFullName === 'oojs.core') {
             recordMap[clsFullName] = this.parseCoreFile(clsFullName);
             return recordMap;
         }
+
+        // 普通oojs类需要加载文件，分析后加载依赖
         var classFileModel = this.parseCls(clsFullName);
+
+        // 检查有没有在替换列表里
+        if (replaceList) {
+            for (var i = 0, len = replaceList.length; i < len; i++) {
+                var replaceInfo = replaceList[i];
+                var target = replaceInfo.target + '';
+                var value = replaceInfo.value + '';
+                if (clsFullName === target) {
+                    recordMap[clsFullName] = undefined;
+                    clsFullName = value;
+                }
+                this.replace(target, value, classFileModel);
+            }
+        }
         recordMap[clsFullName] = classFileModel;
 
         var classData = classFileModel.description;
@@ -149,13 +169,37 @@ oojs.define && oojs.define({
         for (var i = 0, count = depsList.length; i < count; i++) {
             var depsClassFullName = depsList[i];
             // 如果记录中已经存在，忽略
-            if (recordMap.hasOwnProperty(depsClassFullName) || (filterRecord && filterRecord[depsClassFullName])) {
+            if (recordMap.hasOwnProperty(depsClassFullName)
+                || (filterRecord && filterRecord[depsClassFullName])
+            ) {
                 continue;
             }
-            this.analyzeAllDeps(depsClassFullName, recordMap, filterRecord);
+            this.analyzeAllDeps(depsClassFullName, recordMap, filterRecord, replaceList);
         }
 
         return recordMap;
+    },
+
+    /**
+     * 对指定FildModel进行依赖进行替换
+     * 包括description中的deps和source中的deps
+     *
+     * @param {string} target 目标类名
+     * @param {string} value 替换后的类名
+     * @param {Object}
+     */
+    replace: function (target, value, classFileModel) {
+        var classData = classFileModel.description;
+        var depsList = classData.deps || [];
+        for (var i = 0, len = depsList.length; i < len; i++) {
+            if (depsList[i] === target) {
+                depsList.splice(i, 1);
+                depsList.push(value);
+                break;
+            }
+        }
+
+        classFileModel.source = classFileModel.source.replace(target, value);
     },
 
     /**
@@ -171,7 +215,7 @@ oojs.define && oojs.define({
             return true;
         }
 
-        var classDes = this.depsRecordMap[currentClsName || className];
+        var classDes = recordMap[currentClsName || className];
         if (!classDes) {
             return false;
         }
@@ -213,6 +257,7 @@ oojs.define && oojs.define({
             if (key && depsMap[key] && depsMap.hasOwnProperty(key)) {
                 var fileModel = depsMap[key];
                 var classDes = fileModel.description;
+
                 // 出度为0
                 if (
                     !classDes
@@ -231,8 +276,10 @@ oojs.define && oojs.define({
 
         // 相同出度的排个序
         tempList.sort();
+        //console.log(tempList);
+        //console.log('============' + key + '==============');
 
-        if (count === 0) {
+        if (count === 0 || tempList.length === 0) {
             return tempList;
         }
 
@@ -256,7 +303,6 @@ oojs.define && oojs.define({
             if (classDes && classDes['deps'] && classDes.hasOwnProperty('deps')) {
                 for (var j = 0, count = classDes.deps.length; j < count; j++) {
                     if (classDes.deps[j] === dep) {
-                        //console.log(classDes.name + '   ' + dep + ' is deleted');
                         classDes.deps.splice(j, 1);
                         break;
                     }

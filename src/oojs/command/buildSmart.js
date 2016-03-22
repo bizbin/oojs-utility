@@ -64,6 +64,84 @@ oojs.define({
         return result;
     },
 
+    parseReplaceToken: function (template) {
+        // 待导入文件记录,用对象记录方便去重
+        var result = [];
+
+        var regexp = /\$replace\((\S+),\s*(\S+)\)\s*;/gi;
+        // 处理import命令, 只引用当前类
+        template.replace(
+            regexp,
+            function () {
+                var importFilePath = arguments[1];
+                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+
+                var targetImportFilePath = arguments[2];
+                targetImportFilePath = targetImportFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+
+                result.push({
+                    target: importFilePath,
+                    value: targetImportFilePath
+                });
+                return '';
+            }.proxy(this)
+        );
+        return result;
+    },
+
+    replaceReplaceImport: function (template) {
+        var regexp = /\$replace\((\S+),\s*(\S+)\)\s*;/gi;
+        // 处理import命令, 只引用当前类
+        return template.replace(
+            regexp,
+            function () {
+                //var importFilePath = arguments[1];
+                //importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+                return '';
+            }.proxy(this)
+        );
+    },
+
+    replaceSingleImport: function (template, record) {
+        var regexp = new RegExp('\\$import\\((\\S+)\\)\\s*;', 'gi');
+        // 处理import命令, 只引用当前类
+        return template.replace(
+            regexp,
+            function () {
+                var importFilePath = arguments[1];
+                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+                var fileModel = record[importFilePath];
+                var sourceCode = fileModel.source || '';
+                sourceCode += '\n';
+                return (fileModel && fileModel.source) || '';
+            }.proxy(this)
+        );
+    },
+
+    replaceAllImport: function (template, record, list) {
+        var regexp = new RegExp('\\$importAll\\((\\S+)\\)\\s*;', 'gi');
+        // 处理import命令, 只引用当前类
+        return template.replace(
+            regexp,
+            function () {
+                var importFilePath = arguments[1];
+                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+                var sourceCode = '';
+                while (list.length > 0) {
+                    var fullname = list.shift();
+                    var fileModel = record[fullname];
+                    sourceCode += fileModel.source || '';
+                    sourceCode += '\n';
+                    if (importFilePath === fullname) {
+                        return sourceCode;
+                    }
+                }
+
+                return sourceCode;
+            }.proxy(this)
+        );
+    },
+
     /**
      * 针对配置的构建item编译脚本
      *
@@ -87,7 +165,7 @@ oojs.define({
         var singleImportList = this.parseImportToken(templateSource, SINGLE_IMPORT);
         var allImportList = this.parseImportToken(templateSource, ALL_IMPORT);
         var splitList = this.parseImportToken(templateSource, SPLITE_IMPORT);
-        var replaceList = this.parseImportToken(templateSource, REPLACE_IMPORT);
+        var replaceList = this.parseReplaceToken(templateSource);
 
         // 主体部分导入记录
         var allRecord = {};
@@ -104,30 +182,38 @@ oojs.define({
 
         // 处理需依赖加载的
         for (i = 0, count = allImportList.length; i < count; i++) {
-            this.analyse.analyzeAllDeps(allImportList[i], allRecord);
+            this.analyse.analyzeAllDeps(allImportList[i], allRecord, null, replaceList);
         }
 
         // 处理split
-        for (i = 0, count = splitList.length; i < count; i++) {
-            var clsFullName = splitList[i];
-            if (allRecord[clsFullName]) {
-                console.log('[WARNING] ' + clsFullName + ' has imported!');
-            }
-            else {
-                var record = {};
-                this.analyse.analyzeAllDeps(splitList[i], record, allRecord);
-                splitRecordMap[clsFullName] = record;
-            }
-        }
-
-        //var str = '';
-        //for (var key in allRecord) {
-        //    if (key && allRecord.hasOwnProperty(key)) {
-        //        str += key + '\n';
+        //for (i = 0, count = splitList.length; i < count; i++) {
+        //    var clsFullName = splitList[i];
+        //    if (allRecord[clsFullName]) {
+        //        console.log('[WARNING] ' + clsFullName + ' has imported!');
+        //    }
+        //    else {
+        //        var record = {};
+        //        this.analyse.analyzeAllDeps(splitList[i], record, allRecord, null);
+        //        splitRecordMap[clsFullName] = record;
         //    }
         //}
-        //console.log(str);
 
+        // 检查是否存在循环依赖
+        //var isCircle = false;
+        //var badSnakeList = [];
+        //for (var clsName in allRecord) {
+        //    var result = this.analyse.checkDepsCircle(clsName, null, null, allRecord);
+        //    if (result) {
+        //        isCircle = true;
+        //        badSnakeList.push(clsName);
+        //    }
+        //}
+        //
+        //if (isCircle) {
+        //    console.log('存在循环依赖，请解环');
+        //    console.log(badSnakeList);
+        //    return;
+        //}
 
         var temp = this.lang.deepCopyObject(allRecord);
         var sortedAllDependsList = this.analyse.sortDeps(temp);
@@ -135,15 +221,36 @@ oojs.define({
         console.log(sortedAllDependsList);
         console.log('---------EOF------------');
 
-        for (var key in splitRecordMap) {
-            if (!key || !splitRecordMap[key] || !splitRecordMap.hasOwnProperty(key)) {
-                continue;
-            }
+        var sourceCode = '';
+        sourceCode = this.replaceReplaceImport(templateSource);
+        sourceCode = this.replaceSingleImport(sourceCode, allRecord);
+        sourceCode = this.replaceAllImport(sourceCode, allRecord, sortedAllDependsList);
 
-            var splitMap = splitRecordMap[key];
-            var temp = this.lang.deepCopyObject(splitMap);
-            var list = this.analyse.sortDeps(null, temp);
-        }
+        this.fs.writeFileSync(item.sourceFile + '', sourceCode);
+
+        var formatSouceCode = this.jsHelper.formatSync(
+            sourceCode,
+            {
+                comments: false
+            }
+        );
+        this.fs.writeFileSync(item.formatFile + '', formatSouceCode);
+
+        var compressStr = this.jsHelper.compressSync(formatSouceCode);
+        this.fs.writeFileSync(item.compressFile + '', compressStr);
+
+        this.gzip.zipStringToFileSync(item.gzipFile + '', compressStr);
+
+
+        //for (var key in splitRecordMap) {
+        //    if (!key || !splitRecordMap[key] || !splitRecordMap.hasOwnProperty(key)) {
+        //        continue;
+        //    }
+        //
+        //    var splitMap = splitRecordMap[key];
+        //    var temp = this.lang.deepCopyObject(splitMap);
+        //    var list = this.analyse.sortDeps(null, temp);
+        //}
 
         console.log('First build totally cost', +new Date - buildItemStartTimestamp, 'ms');
     }
