@@ -8,6 +8,13 @@ oojs.define({
         gzip: 'oojs.utility.gzip',
         analyse: 'oojs.utility.analyse'
     },
+    recording: {},
+    //所有类的名字集合
+    classNameArray: [],
+    //待加载类的集合
+    prepareloadArray: [],
+    //待加载的依赖类集合
+    prepareDepsArray: [],
     $build: function () {
         this.fs = require('fs');
         this.path = require('path');
@@ -31,13 +38,17 @@ oojs.define({
         this.target = args? args.target: undefined;
     },
 
-    recording: {},
-    //所有类的名字集合
-    classNameArray: [],
-    //待加载类的集合
-    prepareloadArray: [],
-    //待加载的依赖类集合
-    prepareDepsArray: [],
+    run: function () {
+        var  packageObj = require(this.configPath);
+        var  buildObj = packageObj.build;
+        this.buildObj = buildObj;
+        if (this.target) {
+            this.buildItem(buildObj[this.target]);
+            return;
+        }
+
+        this.buildSwitch();
+    },
 
     /*
     "build": {
@@ -63,9 +74,14 @@ oojs.define({
 
         return false;
     },
+    /**
+     * 构建
+     * @param modifiedModuleName
+     */
     buildSwitch: function (modifiedModuleName) {
+        // 对package.json中定义的所有构建配置进行构建
         for (var key in this.buildObj) {
-
+            // 如果是Painter模块，按painter拆分逻辑构建
             if (this.checkIsPainter(key, this.buildObj[key])) {
                 // 每次只打包与改动模块相关的painter或者总控
                 if (modifiedModuleName) {
@@ -82,8 +98,8 @@ oojs.define({
                     // 如果没有传递修改模块，则继续打包
                     this.buildPainter(this.buildObj[key]);
                 }
-
-            } else {
+            }
+            else {
                 if (modifiedModuleName) {
                     var templateFile = this.buildObj[key].template;
                     var moduleName = this.pathMap2ModuleName(templateFile);
@@ -99,17 +115,12 @@ oojs.define({
             }
         }
     },
-    run: function () {
-        var  packageObj = require(this.configPath);
-        var  buildObj = packageObj.build;
-        this.buildObj = buildObj;
-        if (this.target) {
-            this.buildItem(buildObj[this.target]);
-            return;
-        }
 
-        this.buildSwitch();
-    },
+    /**
+     * 路径反解成完整类名
+     * @param path
+     * @returns {string}
+     */
     pathMap2ModuleName: function (path) {
         path = path.split("/");
         path.splice(0, path.indexOf('dup'));
@@ -282,10 +293,12 @@ oojs.define({
         }
         return false;
     },
-    updateSingleCache: function (className, moduleFilePath, test) {
+    // 更新单个cache
+    updateSingleCache: function (className, moduleFilePath) {
         var oldDeps = this.depsMap[className]['deps'];
         var source;
 
+        // 传递了文件路径，从路径读取
         if (moduleFilePath) {
             var source = this.fileSync.readFileSync(moduleFilePath);
             var originSourceMd5Val = this.cache[className]['md5'];
@@ -330,28 +343,9 @@ oojs.define({
                 // 重新计算所有模块的依赖，以防止有循环依赖
                 this.reCalculateAllDeps();                
             }
-
-
-            // // 如果仅仅是有依赖被删除，无新依赖增加
-            // // 则模块的入度出度可能发生变化
-            // // 调整模块排序即可
-            // if (compareDepsResult.dels.length && !compareDepsResult.adds.length) {
-            //     var deepCopyDepsMap = this.deepCopyObject(this.depsMap);
-            //     this.allDepsList = this.analyse.sortDeps([], deepCopyDepsMap);
-            // }
-            // // 如果有新的依赖加入或者同时有依赖模块被删除
-            // // 模块的入度和出度可能发生变化
-            // // 可能出现循环依赖的情况
-            // // 所以需要重新计算依赖
-            // else if (compareDepsResult.adds.length) {   
-            //     // 为了保证在下一步中计算依赖时能够直接从缓存中读取
-            //     // 并且是最新代码
-            //     // 需要在这里提前将source赋值
-            //     this.reCalculateAllDeps();
-            // }
-
         }
 
+        // 更新cache
         var singleCache = this.cache[className];
         singleCache.source = source || singleCache.source;
         singleCache.format = this.jsHelper.formatSync(singleCache.source, {
@@ -472,6 +466,10 @@ oojs.define({
         }
     },
 
+    /**
+     * 对于单个item构建
+     * @param item
+     */
     buildItem: function (item) {
         var buildItemStartTimestamp = +new Date;
         var buildTemplate = item.template;

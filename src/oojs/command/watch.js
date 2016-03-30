@@ -12,7 +12,6 @@ oojs.define({
         return path.join('.').replace('.js', '');
     },
     $watch: function () {
-
         this.build.$build();
         this.build.build();
         this.build.run();
@@ -22,17 +21,19 @@ oojs.define({
         var _this = this;
 
         require('chokidar')
-        .watch(watchArr, {
-            ignored: ignoredArr,
-            ignoreInitial: true
-        })
+            .watch(
+                watchArr,
+                {
+                    ignored: ignoredArr,
+                    ignoreInitial: true
+                }
+            )
         .on('all', function(event, path) {
             var watchEvent = ['add', 'addDir', 'unlink', 'unlinkDir', 'change'];
             var kindOfEvent = watchEvent.indexOf(event);
 
             // 目前不考虑文件夹添加/删除的情况
             if (kindOfEvent === 1 || kindOfEvent === 3) {
-                
                 if (kindOfEvent === 1) {
                     console.log("File added, but ignored");
                 }
@@ -113,7 +114,6 @@ oojs.define({
                 _this.build.rebuild();
                 console.log('Rebuild totally cost ' + (+new Date - t1) + ' ms');                
             }
-
         });
     },
 

@@ -253,25 +253,29 @@ oojs.define && oojs.define({
         // 出度不为0计数
         var count = 0;
         var tempList = [];
+
         for (var key in depsMap) {
             if (key && depsMap[key] && depsMap.hasOwnProperty(key)) {
                 var fileModel = depsMap[key];
                 var classDes = fileModel.description;
+                var deps = classDes['deps'] || [];
 
                 // 出度为0
-                if (
-                    !classDes
-                    || !classDes.hasOwnProperty('deps')
-                    || classDes.deps.length === 0
-                ) {
+                if (deps.length === 0) {
+                    console.log(key);
                     tempList.push(key);
-                    this.clearDep(key, depsMap);
                     depsMap[key] = undefined;
                 }
                 else {
                     count++;
                 }
             }
+        }
+
+        // 一轮遍历之后再裁剪。。。
+        for (var i = 0, len = tempList.length; i < len; i++) {
+            var file = tempList[i];
+            this.clearDep(file, depsMap);
         }
 
         // 相同出度的排个序

@@ -16,10 +16,6 @@ oojs.define({
         this.fs = require('fs');
         this.path = require('path');
         this.md5 = require('md5');
-        // 所有模块源码缓存
-        this.cache = {};
-        // 总控依赖的所有**打包用的**模块（有序）
-        this.allDepsList = [];
     },
 
     buildSmart: function (args) {
@@ -186,17 +182,17 @@ oojs.define({
         }
 
         // 处理split
-        //for (i = 0, count = splitList.length; i < count; i++) {
-        //    var clsFullName = splitList[i];
-        //    if (allRecord[clsFullName]) {
-        //        console.log('[WARNING] ' + clsFullName + ' has imported!');
-        //    }
-        //    else {
-        //        var record = {};
-        //        this.analyse.analyzeAllDeps(splitList[i], record, allRecord, null);
-        //        splitRecordMap[clsFullName] = record;
-        //    }
-        //}
+        for (i = 0, count = splitList.length; i < count; i++) {
+            var clsFullName = splitList[i];
+            if (allRecord[clsFullName]) {
+                console.log('[WARNING] ' + clsFullName + ' has imported!');
+            }
+            else {
+                var record = {};
+                this.analyse.analyzeAllDeps(splitList[i], record, allRecord, null);
+                splitRecordMap[clsFullName] = record;
+            }
+        }
 
         // 检查是否存在循环依赖
         //var isCircle = false;
@@ -216,6 +212,7 @@ oojs.define({
         //}
 
         var temp = this.lang.deepCopyObject(allRecord);
+        //console.log(temp['adserv.bridge.jsBridge']);
         var sortedAllDependsList = this.analyse.sortDeps(temp);
         console.log('--------排序后---------');
         console.log(sortedAllDependsList);
