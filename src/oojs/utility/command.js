@@ -27,7 +27,7 @@ oojs.define({
                 break;
             }
             // node 4.0版本后, 全剧命令第一个参数从node改成了"c:/document/node.exe"的形式
-            if (args[i] !== 'node' && !(/node\.exe$/gi.test(args[i]))) {
+            if (args[i] !== 'node' && !(/node\.exe$|node$/gi.test(args[i]))) {
                 commandArray.push(args[i]);
             }
             optionArray.shift();
