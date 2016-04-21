@@ -6,535 +6,275 @@ oojs.define({
         fileSync: 'oojs.utility.fileSync',
         jsHelper: 'oojs.utility.jsHelper',
         gzip: 'oojs.utility.gzip',
-        analyse: 'oojs.utility.analyse'
+        analyse: 'oojs.utility.analyse',
+        lang: 'oojs.utility.lang'
     },
-    recording: {},
-    //所有类的名字集合
-    classNameArray: [],
-    //待加载类的集合
-    prepareloadArray: [],
-    //待加载的依赖类集合
-    prepareDepsArray: [],
+
     $build: function () {
         this.fs = require('fs');
         this.path = require('path');
         this.md5 = require('md5');
-        // 所有模块源码缓存
-        // this.cache["dup.ui.painter.slide"] = 'xxxxx';
-        this.cache = {};
-        // 总控依赖的所有**打包用的**模块（有序）
-        this.allDepsList = [];
-        // 所有模块的依赖信息，模块中的`deps`字段
-        // this.depsMap
-        
-        // 所有painter**打包需要的**所有模块（有序）
-        this.painterDepsList = {}
     },
 
     build: function (args) {
-        // this.config = args.config || './package.json';
-        this.config = args? (args.config || './package.json'): './package.json';
+        this.config = args ? (args.config || './package.json'): './package.json';
         this.configPath = this.path.resolve(this.config);
-        this.target = args? args.target: undefined;
+        this.target = args ? args.target: undefined;
     },
 
     run: function () {
-        var  packageObj = require(this.configPath);
-        var  buildObj = packageObj.build;
+        var packageObj = require(this.configPath);
+        var buildObj = packageObj.build;
         this.buildObj = buildObj;
         if (this.target) {
             this.buildItem(buildObj[this.target]);
             return;
         }
-
-        this.buildSwitch();
-    },
-
-    /*
-    "build": {
-        unionInlay: {
-            template: './entry/unionInlay.js',
-            sourceFile: ['./test/asset/c.source.js'],
-            formatFile: ['./test/asset/c.js'],
-            compressFile: ['./asset/c.js'],
-            gzipFile: ['./asset/c.js.gz']
-        }
-    }
-    */
-    checkIsPainter: function (buildName, buildTask) {
-        var keyword = 'painter';
-
-        if (buildName.toLowerCase().indexOf(keyword) > 0) {
-            return true;
-        }
-
-        if (buildTask.type && buildTask.type === keyword) {
-            return true;
-        }
-
-        return false;
-    },
-    /**
-     * 构建
-     * @param modifiedModuleName
-     */
-    buildSwitch: function (modifiedModuleName) {
-        // 对package.json中定义的所有构建配置进行构建
-        for (var key in this.buildObj) {
-            // 如果是Painter模块，按painter拆分逻辑构建
-            if (this.checkIsPainter(key, this.buildObj[key])) {
-                // 每次只打包与改动模块相关的painter或者总控
-                if (modifiedModuleName) {
-                    var templateFile = this.buildObj[key].template;
-                    var painterModuleName = this.pathMap2ModuleName(templateFile);
-                    var deps = this.painterDepsList[painterModuleName];
-                    for (var i = 0; i < deps.length; i++) {
-                        if (deps[i] == modifiedModuleName) {
-                            console.log(modifiedModuleName);
-                            this.buildPainter(this.buildObj[key], true);                            
-                        }
-                    }
-                } else {
-                    // 如果没有传递修改模块，则继续打包
-                    this.buildPainter(this.buildObj[key]);
-                }
-            }
-            else {
-                if (modifiedModuleName) {
-                    var templateFile = this.buildObj[key].template;
-                    var moduleName = this.pathMap2ModuleName(templateFile);
-                    for (var i = 0; i < this.allDepsList.length; i++) {
-                        if (this.allDepsList[i] == moduleName) {
-                            this.buildItem(this.buildObj[key]);
-                        }
-                    }
-                }
-                else {
-                    this.buildItem(this.buildObj[key]);
+        else {
+            for (var key in buildObj) {
+                if (buildObj.hasOwnProperty(key) && buildObj[key]) {
+                    this.buildItem(buildObj[key]);
                 }
             }
         }
     },
 
     /**
-     * 路径反解成完整类名
-     * @param path
-     * @returns {string}
+     * 解析导入命令模式，目前支持：
+     * $import(); // 单个导入
+     * $importAll(); // 导入全部依赖
+     * $split(); // 导入，把所有依赖文件合并后成独立js文件
+     * $replace(); // 替换导入
+     *
+     * @param {string} template 打包模板文件
+     * @param {string} type 导入类型
      */
-    pathMap2ModuleName: function (path) {
-        path = path.split("/");
-        path.splice(0, path.indexOf('dup'));
-        path = path.join('.').replace('.js', '');
-        return path;
-    },    
-    buildPainter: function (painerObj, onWatch) {
-        var filePath = painerObj.template;
-        var sourceFilePath = painerObj.sourceFile;
-        var formatFilePath = painerObj.formatFile;
-        var compressFilePath = painerObj.compressFile;
-        var gzipFilePath = painerObj.gzipFile;
-
-        var moduleName = this.pathMap2ModuleName(filePath);
-        // 找到该模块所依赖所有模块（有序, 包括子孙的依赖）
-        var moduleDeps = this.analyse.parseSortedDepsList([moduleName]);
-        // 获取所有模块的直接依赖
-        var directDeps = this.analyse.getCloneDeps();
-
-
-        // 剔除已经打包在总控中的模块
-        for (var i = 0; i < moduleDeps.length; i++) {
-            if (this.allDepsList.indexOf(moduleDeps[i]) > -1) {
-                moduleDeps.splice(i--, 1);
-            }
-        }
-
-        this.painterDepsList[moduleName] = moduleDeps;
-
-        // 如果所有的模块以及打包在总控中，则不需要进行接下来的打包工作
-        if (!moduleDeps.length) {
-            console.log("Warning:", moduleName, 'already build in ssp.js');
-            return;
-        }
-
-        var sourceStr = '';
-        var formatStr = '';
-
-        for (var i = 0; i < moduleDeps.length; i++) {
-            var name = moduleDeps[i];
-            // 新增总控中未打包进的模块的依赖
-            this.depsMap[name] = directDeps[name]
-
-            if (!this.cache[name]) {
-                var path = oojs.getClassPath(name);
-
-                var source = this.fileSync.readFileSync(path);
-                var sourceMd5Val = this.md5(source);
-
-                this.cache[name] = {
-                    'source': source,
-                    'md5': sourceMd5Val,
-                    'format': this.jsHelper.formatSync(source, {
-                        comments: false
-                    })
-                }
-            }
-            else {
-                // console.log(name, 'already been cached');
-            }
-
-            sourceStr += this.cache[name].source;
-            formatStr += this.cache[name].format;
-        }
-
-        for (var i = 0; i < sourceFilePath.length; i++) {
-            this.fs.writeFileSync(sourceFilePath[i], ';(function(oojs) {' + sourceStr + '})(_dup_global.oojs);');
-        }        
-        console.log(moduleName, 'source build successfully');
-        
-        for (var i = 0; i < formatFilePath.length; i++) {
-            this.fs.writeFileSync(formatFilePath[i], ';(function(oojs) {' + formatStr + '})(_dup_global.oojs);');
-        }
-        console.log(moduleName, 'format build successfully');
-
-        // 如果处于开发模式，则不进行压缩和gzip压缩
-        if (onWatch) {
-            return false;
-        }
-        
-        for (var i = 0; i < compressFilePath.length; i++) {
-            var compressStr = this.jsHelper.compressSync(formatStr);
-            this.fs.writeFileSync(compressFilePath[i], ';(function(oojs) {' + compressStr + '})(_dup_global.oojs);');
-        }
-        console.log(moduleName, 'compress build successfully');
-
-        for (var  i = 0; i < gzipFilePath.length; i++) {
-            this.gzip.zipStringToFileSync(gzipFilePath[i], compressStr);
-        }        
-        console.log(moduleName, 'gzip build successfully');
-    
-    },
-    compareDeps: function (oldDeps, newDeps) {
-        var result = {
-            adds:[],
-            dels:[]
-        };
-
-        if ((!oldDeps || !oldDeps.length) && (newDeps && newDeps.length)) {
-            result.adds = newDeps;
-            return result;
-        }
-
-        if ((!newDeps || !newDeps.length) && (oldDeps && oldDeps.length)) {
-            result.dels = oldDeps;
-            return result;
-        }
-
-        for (var i = 0; i < newDeps.length; i++) {
-            var temp = newDeps[i];
-            if (oldDeps.indexOf(temp) < 0) {
-                result.adds.push(temp);
-            }
-        }
-
-        for (var i = 0; i < oldDeps.length; i++) {
-            var temp = oldDeps[i];
-            if (newDeps.indexOf(temp) < 0) {
-                result.dels.push(temp);
-            }
-        }
-
+    parseImportToken: function (template, type) {
+        // 待导入文件记录,用对象记录方便去重
+        var result = [];
+        var regexp = new RegExp('\\$' + type + '\\((\\S+)\\)\\s*;', 'gi');
+        // 处理import命令, 只引用当前类
+        template.replace(
+            regexp,
+            function () {
+                var importFilePath = arguments[1];
+                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+                result.push(importFilePath);
+            }.proxy(this)
+        );
         return result;
     },
-    deepCopyArray: function (targetArr) {
-        var arr = [];
-        for (var i = 0; i < targetArr.length; i++) {
-            arr[i] = targetArr[i];
-        }
-        return arr;
+
+    parseReplaceToken: function (template) {
+        // 待导入文件记录,用对象记录方便去重
+        var result = [];
+
+        var regexp = /\$replace\((\S+),\s*(\S+)\)\s*;/gi;
+        // 处理import命令, 只引用当前类
+        template.replace(
+            regexp,
+            function () {
+                var importFilePath = arguments[1];
+                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+
+                var targetImportFilePath = arguments[2];
+                targetImportFilePath = targetImportFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+
+                result.push({
+                    target: importFilePath,
+                    value: targetImportFilePath
+                });
+                return '';
+            }.proxy(this)
+        );
+        return result;
     },
-    deepCopyObject: function (sourceObj) {
-        var targetObj = {};
 
-        var isObject = function (testSubject) {
-            return Object.prototype.toString.call(testSubject) == '[object Object]'? true: false;
-        }
-
-        var isArray = function (testSubject) {
-            return Object.prototype.toString.call(testSubject) == '[object Array]'? true: false;
-        }
-
-        for (var key in sourceObj) {
-            
-            var value = sourceObj[key];
-            
-            if (isObject(value)) {
-                targetObj[key] = this.deepCopyObject(value);
-            } 
-            else if (isArray(value)) {
-                targetObj[key] = this.deepCopyArray(value);
-            } 
-            else {
-                targetObj[key] = value;
-            }
-        }
-        return targetObj;
+    replaceReplaceImport: function (template) {
+        var regexp = /\$replace\((\S+),\s*(\S+)\)\s*;/gi;
+        // 处理import命令, 只引用当前类
+        return template.replace(
+            regexp,
+            function () {
+                //var importFilePath = arguments[1];
+                //importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+                return '';
+            }.proxy(this)
+        );
     },
-    checkModuleIsReferenced: function (moduleName) {
-        for (var className in this.depsMap) {
-            var module = this.depsMap[className];
-            var deps = module.deps;
-            if (deps && deps.length) {
-                for (var i = 0; i < deps.length; i++) {
-                    if (deps[i].indexOf(moduleName) > -1) {
-                        return true;
+
+    replaceSingleImport: function (template, record) {
+        var regexp = new RegExp('\\$import\\((\\S+)\\)\\s*;', 'gi');
+        // 处理import命令, 只引用当前类
+        return template.replace(
+            regexp,
+            function () {
+                var importFilePath = arguments[1];
+                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+                var fileModel = record[importFilePath];
+                var sourceCode = fileModel.source || '';
+                sourceCode += '\n';
+                return (fileModel && fileModel.source) || '';
+            }.proxy(this)
+        );
+    },
+
+    replaceAllImport: function (template, record, list) {
+        var regexp = new RegExp('\\$importAll\\((\\S+)\\)\\s*;', 'gi');
+        // 处理import命令, 只引用当前类
+        return template.replace(
+            regexp,
+            function () {
+                var importFilePath = arguments[1];
+                importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
+                var sourceCode = '';
+                while (list.length > 0) {
+                    var fullname = list.shift();
+                    var fileModel = record[fullname];
+                    sourceCode += fileModel.source || '';
+                    sourceCode += '\n';
+                    if (importFilePath === fullname) {
+                        return sourceCode;
                     }
                 }
-            }
-        }
-        return false;
-    },
-    // 更新单个cache
-    updateSingleCache: function (className, moduleFilePath) {
-        var oldDeps = this.depsMap[className]['deps'];
-        var source;
 
-        // 传递了文件路径，从路径读取
-        if (moduleFilePath) {
-            var source = this.fileSync.readFileSync(moduleFilePath);
-            var originSourceMd5Val = this.cache[className]['md5'];
-            var currentSourceMd5Val = this.md5(source);
-
-            if (originSourceMd5Val === currentSourceMd5Val) {
-                return 1;
-            }
-
-            // 更新md5
-            // 为了解决下面所说analyzeDeps修改导致文件被修改的问题
-            this.cache[className]['md5'] = currentSourceMd5Val 
-
-            var isEmptyObj = function (obj) {
-                for (var key in obj) {
-                    return false;
-                }
-                return true;
-            }
-
-            /*
-                analyzeDeps函数有几个bug
-                1. 会导致文件被修改（所以需要上面一步的md5校验）
-                2. 分析结果会出错，返回为空对象
-             */
-            var analyseResult = this.analyse.analyzeDeps(moduleFilePath);
-            // 检测analyzeDeps返回是否出错
-            if (isEmptyObj(analyseResult)) {
-                return 2;
-            }
-
-            var newDeps = analyseResult.deps;          
-            var compareDepsResult = this.compareDeps(oldDeps, newDeps);
-
-            // 如果修改后的模块依赖发生更改
-            // 重新计算打包依赖的所有模块
-            if (compareDepsResult.dels.length || compareDepsResult.adds.length) {
-                // 更新单个模块额缓存代码
-                this.cache[className]['source'] = source;
-                // 更新该模块的依赖
-                this.depsMap[className]['deps'] = this.deepCopyArray(newDeps);         
-                // 重新计算所有模块的依赖，以防止有循环依赖
-                this.reCalculateAllDeps();                
-            }
-        }
-
-        // 更新cache
-        var singleCache = this.cache[className];
-        singleCache.source = source || singleCache.source;
-        singleCache.format = this.jsHelper.formatSync(singleCache.source, {
-            comments: false
-        });  
-        return true;                        
-    },
-    rebuild: function (modifiedModuleName) {
-        console.log("modifiedModuleName----->", modifiedModuleName);
-        this.buildSwitch(modifiedModuleName);
-    },
-    reCalculateAllDeps: function () {
-        var  importWithDepsRegexp = /\$importAll\((\S+)\)\s*;/gi;
-
-        // 总控
-        this.originSourceFileString.replace(importWithDepsRegexp, function () {
-            var  result = [];
-            var  importFilePath = arguments[1];
-            importFilePath = importFilePath.replace(/\'/gi, "").replace(/\"/gi, "");
-            this.allDepsList = this.analyse.parseSortedDepsList([importFilePath]);
-            // 缓存所有模块的依赖信息
-            this.depsMap = this.analyse.getCloneDeps();
-            if (this.allDepsList) {
-                for (var i = 0, len = this.allDepsList.length; i < len; i++) {
-                    var clsName = this.allDepsList[i];
-                    // 如果有新模块加入
-                    if (!this.cache[clsName]) {
-                        var clsFilePath = oojs.getClassPath(clsName);
-                        var code = this.fileSync.readFileSync(clsFilePath, 'utf-8');
-                        // 更新代码缓存
-                        var singleCache = (this.cache[clsName] = this.cache[clsName] || {});
-                        singleCache['source'] = code;
-                        singleCache['md5'] = this.md5(code);
-                    }
-                }
-            }
-        }.proxy(this));
-
-        // painter:
-        for (var moduleName in this.painterDepsList) {
-            var moduleDeps = this.analyse.parseSortedDepsList([moduleName]);            
-            this.painterDepsList[moduleName] = moduleDeps;
-            for (var i = 0; i < moduleDeps.length; i++) {
-                var clsName = moduleDeps[i];
-                // 如果有新模块加入
-                if (!this.cache[clsName]) {
-                    var clsFilePath = oojs.getClassPath(clsName);
-                    var code = this.fileSync.readFileSync(clsFilePath, 'utf-8');
-                    // 更新代码缓存
-                    var singleCache = (this.cache[clsName] = this.cache[clsName] || {});
-                    singleCache['source'] = code;
-                    singleCache['md5'] = this.md5(code);
-                }                                
-            }
-        }
-
-    },
-    build4watch: function (item) {
-        //处理source文件
-        this.buildSourceFile(item.sourceFile)
-
-        //处理format文件
-        var formatString = this.buildFormatFile(item.formatFile);
-    },
-    buildTotally: function (item) {
-
-        //处理source文件
-        this.buildSourceFile(item.sourceFile)
-
-        //处理format文件
-        var formatString = this.buildFormatFile(item.formatFile);
-
-        // 处理compress文件
-        var compressStr = this.buildCompressFile(item.compressFile, formatString);
-
-        // 处理gzip文件
-        this.buildGzipFile(item.gzipFile, compressStr);
-    },
-    _build: function (filePathArr,format) {
-        var totalStr = '';
-        var  importWithDepsRegexp = /\$importAll\((\S+)\)\s*;/gi;
-
-        totalStr = this.originSourceFileString.replace(importWithDepsRegexp, function () {
-            var  sourceCode = '';
-            for (var j = 0; j < this.allDepsList.length;j++) {
-                var clsName = this.allDepsList[j];
-                var singleCache = this.cache[clsName];
-                sourceCode += singleCache[format];
-            }
-            return sourceCode;
-        }.proxy(this));  
-
-        for (var  i = 0, count = filePathArr.length; i < count; i++) {
-            var  tempFilePath = filePathArr[i];
-            this.fs.writeFileSync(tempFilePath, totalStr);
-        }
-
-        return totalStr;
-    },
-    buildSourceFile: function (filePathArr) {
-        return this._build(filePathArr, 'source');
-    },
-    buildFormatFile: function (filePathArr) {
-        return this._build(filePathArr, 'format');
-    },
-    buildCompressFile: function (filePathArr, unCompressStr) {
-        var compressStr = this.jsHelper.compressSync(unCompressStr);
-        for (var  i = 0, count = filePathArr.length; i < count; i++) {
-            var  tempFilePath = filePathArr[i];
-            this.fs.writeFileSync(tempFilePath, compressStr);
-        }
-        return compressStr;
-    },
-    buildGzipFile: function (filePathArr, compressStr) {
-        for (var  i = 0, count = filePathArr.length; i < count; i++) {
-            var  tempGzipFilePath = filePathArr[i];
-            this.gzip.zipStringToFileSync(tempGzipFilePath, compressStr);
-        }
+                return sourceCode;
+            }.proxy(this)
+        );
     },
 
     /**
-     * 对于单个item构建
-     * @param item
+     * 针对配置的构建item编译脚本
+     *
+     * @param {Object} item
+     * @param {string} item.template 编译模板文件配置
+     * @param {string} item.sourceFile 编译出源文件地址
+     * @param {string} item.formatFile 带格式去注释文件地址
+     * @param {string} item.compressFile 压缩后文件地址
+     * @param {string} item.gzipFile gzip压缩文件地址
      */
     buildItem: function (item) {
         var buildItemStartTimestamp = +new Date;
-        var buildTemplate = item.template;
-        var _this = this;
+        var SINGLE_IMPORT = 'import';
+        var ALL_IMPORT = 'importAll';
+        var SPLITE_IMPORT = 'split';
+        var REPLACE_IMPORT = 'replace';
 
-        var  templateSource = this.fileSync.readFileSync(buildTemplate);
-        var  importRegexp = /\$import\((\S+)\)\s*;/gi;
-        var  importWithDepsRegexp = /\$importAll\((\S+)\)\s*;/gi;
-        var  importMatch;
+        // 编译模板
+        var templateSource = this.fileSync.readFileSync('' + item.template);
 
-        // 处理import命令, 只引用当前类
-        var  sourceFileString = templateSource.replace(importRegexp, function () {
-            var  result = "";
-            var  importFilePath = arguments[1];
-            importFilePath = importFilePath.replace(/\'/gi, "").replace(/\"/gi, "");
-            //处理 module 引用
-            if (importFilePath && importFilePath.indexOf('oojs') > -1) {
-                importFilePath = "./node_modules/node-oojs/bin/" + importFilePath + ".js";
-            }
-            else {
-                importFilePath = oojs.getClassPath(importFilePath);
-            }
-            result = this.fileSync.readFileSync(importFilePath);
+        var singleImportList = this.parseImportToken(templateSource, SINGLE_IMPORT);
+        var allImportList = this.parseImportToken(templateSource, ALL_IMPORT);
+        var splitList = this.parseImportToken(templateSource, SPLITE_IMPORT);
+        var replaceList = this.parseReplaceToken(templateSource);
 
-            return result;
-        }.proxy(this));
+        // 主体部分导入记录
+        var allRecord = {};
+        // 拆分出来独立打包的记录
+        var splitRecordMap = {};
+        var i = 0;
+        var count = 0;
 
-        this.originSourceFileString = sourceFileString;
-
-        // 处理importWithDeps命令, 加载当前类以及所有依赖的类
-        sourceFileString = sourceFileString.replace(importWithDepsRegexp, function () {
-            var  result = [];
-            var  importFilePath = arguments[1];
-            importFilePath = importFilePath.replace(/\'/gi, "").replace(/\"/gi, "");
-            var sourceCode = '';
-            this.allDepsList = this.analyse.parseSortedDepsList([importFilePath]);
-            // console.log("------>", importFilePath);
-            // console.log("------>", this.allDepsList);
-
-            // 缓存所有模块的依赖信息
-            this.depsMap = this.analyse.getCloneDeps();
-            if (this.allDepsList) {
-                for (var i = 0, len = this.allDepsList.length; i < len; i++) {
-                    var clsName = this.allDepsList[i];
-                    var clsFilePath = oojs.getClassPath(clsName);
-                    var code = this.fileSync.readFileSync(clsFilePath, 'utf-8');
-                    // 更新代码缓存
-                    var singleCache = (this.cache[clsName] = this.cache[clsName] || {});
-                    singleCache['source'] = code;
-                    singleCache['md5'] = this.md5(code);
-                    sourceCode += code;
-                }
-            }
-            return sourceCode;
-        }.proxy(this));
-
-        //更新cache
-        for (var i = 0; i < this.allDepsList.length; i++) {
-            var clsName = this.allDepsList[i];
-            this.updateSingleCache(clsName);
+        // 处理单个加载的
+        for (i = 0, count = singleImportList.length; i < count; i++) {
+            var clsFullName = singleImportList[i];
+            allRecord[clsFullName] = this.analyse.parseCls(clsFullName);
         }
 
-        this.buildTotally(item);
+        // 处理需依赖加载的
+        for (i = 0, count = allImportList.length; i < count; i++) {
+            this.analyse.analyzeAllDeps(allImportList[i], allRecord, null, replaceList);
+        }
 
-        console.log('First ssp.js build totally cost', +new Date - buildItemStartTimestamp, 'ms');
-    } 
+        // 处理split
+        for (i = 0, count = splitList.length; i < count; i++) {
+            var clsFullName = splitList[i];
+            if (allRecord[clsFullName]) {
+                console.log('[WARNING] ' + clsFullName + ' has imported!');
+            }
+            else {
+                var record = {};
+                this.analyse.analyzeAllDeps(splitList[i], record, allRecord, null);
+                splitRecordMap[clsFullName] = record;
+            }
+        }
 
+        // 检查是否存在循环依赖
+        //var isCircle = false;
+        //var badSnakeList = [];
+        //for (var clsName in allRecord) {
+        //    var result = this.analyse.checkDepsCircle(clsName, null, null, allRecord);
+        //    if (result) {
+        //        isCircle = true;
+        //        badSnakeList.push(clsName);
+        //    }
+        //}
+        //
+        //if (isCircle) {
+        //    console.log('存在循环依赖，请解环');
+        //    console.log(badSnakeList);
+        //    return;
+        //}
+
+        var temp = this.lang.deepCopyObject(allRecord);
+        var sortedAllDependsList = this.analyse.sortDeps(temp);
+
+        this.logSortedList(sortedAllDependsList);
+
+        var sourceCode = '';
+        sourceCode = this.replaceReplaceImport(templateSource);
+        sourceCode = this.replaceSingleImport(sourceCode, allRecord);
+        sourceCode = this.replaceAllImport(sourceCode, allRecord, sortedAllDependsList);
+
+        this.fs.writeFileSync(item.sourceFile + '', sourceCode);
+
+        var formatSouceCode = this.jsHelper.formatSync(
+            sourceCode,
+            {
+                comments: false
+            }
+        );
+        this.fs.writeFileSync(item.formatFile + '', formatSouceCode);
+
+        var compressStr = this.jsHelper.compressSync(formatSouceCode);
+        this.fs.writeFileSync(item.compressFile + '', compressStr);
+
+        this.gzip.zipStringToFileSync(item.gzipFile + '', compressStr);
+
+        //for (var key in splitRecordMap) {
+        //    if (!key || !splitRecordMap[key] || !splitRecordMap.hasOwnProperty(key)) {
+        //        continue;
+        //    }
+        //
+        //    var splitMap = splitRecordMap[key];
+        //    var temp = this.lang.deepCopyObject(splitMap);
+        //    var list = this.analyse.sortDeps(null, temp);
+        //}
+
+        console.log('First build totally cost', +new Date - buildItemStartTimestamp, 'ms');
+    },
+
+    /**
+     * 展示排序后的依赖信息
+     *
+     * @param {Array} sortedAllDependsList
+     */
+    logSortedList: function (sortedAllDependsList) {
+        console.log('--------排序后---------');
+        for (var n = 0, count = sortedAllDependsList.length; n < count; n++) {
+            var clsName = sortedAllDependsList[n];
+            var fileModel = allRecord[clsName];
+            var source = fileModel.source || '';
+            var formatSouce = this.jsHelper.formatSync(
+                source,
+                {
+                    comments: false
+                }
+            );
+            var cstr = this.jsHelper.compressSync(formatSouce);
+
+            console.log(clsName + '  ' + (fileModel.description.deps && fileModel.description.deps.length) + '  ' + cstr.length);
+        }
+        console.log('---------EOF------------');
+    }
 });
