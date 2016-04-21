@@ -4,13 +4,6 @@ oojs.define({
         this.run();
     },
     run: function () {
-        //读取js文件
-        var  fs = require('fs');
-        var  jsSourceString = fs.readFileSync('mraid.js');
-        console.log("aaa");
-        console.log(jsSourceString);
-        return;
-        
         //读取java文件
         var  javaSourceString = fs.readFileSync('./test.java');
         

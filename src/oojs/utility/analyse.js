@@ -262,7 +262,6 @@ oojs.define && oojs.define({
 
                 // 出度为0
                 if (deps.length === 0) {
-                    console.log(key);
                     tempList.push(key);
                     depsMap[key] = undefined;
                 }
@@ -322,10 +321,7 @@ oojs.define && oojs.define({
      * @param {string} clsFullName 类全名
      * @returns {*}
      */
-    parseSortedDepsList: function (clsFullName) {
-        // 按依赖关系分析出用到的所有类
-        var allDependsMap = this.analyzeAllDeps(clsFullName);
-
+    isExistBadCircle: function (allDependsMap) {
         // 检查是否存在循环依赖
         var isCircle = false;
         var badSnakeList = [];
@@ -337,16 +333,7 @@ oojs.define && oojs.define({
             }
         }
 
-        if (isCircle) {
-            console.log('存在循环依赖，请解环');
-            console.log(badSnakeList);
-            return;
-        }
-
-        // 依赖关系排序
-        var list = null;
-        this.sortDeps(list, allDependsMap);
-        return list;
+        return isCircle;
     }
 
 });

@@ -96,8 +96,6 @@ oojs.define({
         return template.replace(
             regexp,
             function () {
-                //var importFilePath = arguments[1];
-                //importFilePath = importFilePath.replace(/\'/gi, '').replace(/\"/gi, '');
                 return '';
             }.proxy(this)
         );
@@ -200,26 +198,17 @@ oojs.define({
         }
 
         // 检查是否存在循环依赖
-        //var isCircle = false;
-        //var badSnakeList = [];
-        //for (var clsName in allRecord) {
-        //    var result = this.analyse.checkDepsCircle(clsName, null, null, allRecord);
-        //    if (result) {
-        //        isCircle = true;
-        //        badSnakeList.push(clsName);
-        //    }
-        //}
-        //
-        //if (isCircle) {
-        //    console.log('存在循环依赖，请解环');
-        //    console.log(badSnakeList);
-        //    return;
-        //}
+        var isCircle = this.analyse.isExistBadCircle(allRecord);
+        if (isCircle) {
+            console.log('存在循环依赖，请解环');
+            console.log(badSnakeList);
+            return;
+        }
 
         var temp = this.lang.deepCopyObject(allRecord);
         var sortedAllDependsList = this.analyse.sortDeps(temp);
 
-        this.logSortedList(sortedAllDependsList);
+        this.logSortedList(sortedAllDependsList, allRecord);
 
         var sourceCode = '';
         sourceCode = this.replaceReplaceImport(templateSource);
@@ -259,7 +248,7 @@ oojs.define({
      *
      * @param {Array} sortedAllDependsList
      */
-    logSortedList: function (sortedAllDependsList) {
+    logSortedList: function (sortedAllDependsList, allRecord) {
         console.log('--------排序后---------');
         for (var n = 0, count = sortedAllDependsList.length; n < count; n++) {
             var clsName = sortedAllDependsList[n];
@@ -273,7 +262,7 @@ oojs.define({
             );
             var cstr = this.jsHelper.compressSync(formatSouce);
 
-            console.log(clsName + '  ' + (fileModel.description.deps && fileModel.description.deps.length) + '  ' + cstr.length);
+            console.log(clsName + '  deps:' + (fileModel.description.deps && fileModel.description.deps.length) + '  size:' + cstr.length);
         }
         console.log('---------EOF------------');
     }
